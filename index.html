@@ -1,7 +1,8 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
 <html xmlns="http://www.w3.org/1999/xhtml">
+
 <head>
-<!-- 只保留一个 jQuery -->
 <script src="js/jquery.min.js"></script>
 
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
@@ -14,18 +15,29 @@
 <style type="text/css">
 
 html {
+
 	overflow:hidden; 
+
 	-ms-touch-action:none;
+
 	-ms-content-zooming:none;
+
 }
 
 body {
+
 	position:absolute;
+
 	margin:0px;
+
 	padding:0px;
+
 	background:#E0E0E0;
+
 	width:100%;
+
 	height:100%;
+
 }
 
 .open_effect{
@@ -65,10 +77,15 @@ body {
 }
 
 #canvas {
+
 	position:absolute;
+
 	width:100%;
+
 	height:100%;
+
 	background:#E0E0E0;
+
 }
 #sbtn {
 	width: 30px;
@@ -117,6 +134,7 @@ input[type='checkbox'].switch::after {
 input[type='checkbox'].switch:checked {
     background: rgb(19, 206, 102);
 }
+/* 当input[type=checkbox]被选中时：伪元素显示下面样式 位置发生变化 */
 input[type='checkbox'].switch:checked::after {
     content: '';
     position: absolute;
@@ -125,519 +143,951 @@ input[type='checkbox'].switch:checked::after {
 }
 </style>
 
+
+
 <script type="text/javascript" src="js/ge1doot.js"></script>
 
 <script type="text/javascript">
 
+
 "use strict";
+
 
 (function () {
 
 	/* ==== definitions ==== */
-	var diapo = [], layers = [], ctx, pointer, scr, camera, light, fps = 0, quality = [1,1], imageData, num_of_images; // 修改：quality默认低画质
-	var LOAD_DISTANCE = 5000; // 新增：定义加载距离阈值
 
+	var diapo = [], layers = [], ctx, pointer, scr, camera, light, fps = 0, quality = [1,2], imageData, num_of_images,
 	// ---- poly constructor ----
+
 	Poly = function (parent, face) {
+
 		this.parent = parent;
+
 		this.ctx    = ctx;
+
 		this.color  = face.fill || false;
+
 		this.points = [];
+
 		if (!face.img) {
+
+			// ---- create points ----
+
 			for (var i = 0; i < 4; i++) {
+
 				this.points[i] = new ge1doot.transform3D.Point(
+
 					parent.pc.x + (face.x[i] * parent.normalZ) + (face.z[i] * parent.normalX),
+
 					parent.pc.y +  face.y[i],
+
 					parent.pc.z + (face.x[i] * parent.normalX) + (-face.z[i] * parent.normalZ)
+
 				);
+
 			}
+
 			this.points[3].next = false;
+
 		}
+
 	},
 
-	// ---- diapo constructor ---- (修改：不再立即加载图片)
-	Diapo = function (path, img, structure) {
-		// ---- 存储路径，不立即创建Image ----
-		this.imgPath = path + img.img;
-		this.img = null; // 图片对象留空
-		this.isLoaded = false; // 加载完成标志
-		this.loadingStarted = false; // 开始加载标志
+	// ---- diapo constructor ----  将每一张图片都封装成一个对象
 
+	Diapo = function (path, img, structure) {
+
+		// ---- create image ----
+
+		this.img = new ge1doot.transform3D.Image(
+
+			this, path + img.img, 1, {
+
+				isLoaded: function(img) {
+
+					img.parent.isLoaded = true;
+
+					img.parent.loaded(img);
+					
+				}
+
+			}
+
+		);
+		// alert(JSON.stringify(img))
 		this.visible  = false;
+
 		this.normalX  = img.nx;
+
 		this.normalZ  = img.nz;
 		
 		// ---- point center ----
+
 		this.pc = new ge1doot.transform3D.Point(img.x, img.y, img.z);
 
 		// ---- target positions ----
+
 		this.tx = img.x + (img.nx * Math.sqrt(camera.focalLength) * 20);
+
 		this.tz = img.z - (img.nz * Math.sqrt(camera.focalLength) * 20);
 
 		// ---- create polygons ----
+
 		this.poly = [];
+
 		for (var i = -1, p; p = structure[++i];) {
+
 			layers[i] = (p.img === true ? 1 : 2);
+
 			this.poly.push(
+
 				new Poly(this, p)
+
 			);
+
 		}
+
 	},
 
 	// ---- init section ----
+
 	init = function (json) {
+
+		// draw poly primitive
+
 		Poly.prototype.drawPoly = ge1doot.transform3D.drawPoly;
-		
+
+		// ---- init screen ----
+
 		scr = new ge1doot.Screen({
+
 			container: "canvas"
+
 		});
+
 		ctx = scr.ctx;
+
 		scr.resize();
 
+		// ---- init pointer ----
+
 		pointer = new ge1doot.Pointer({
+
 			tap: function () {
-				if (camera.over) {  
+
+				if (camera.over) {  // 控制摄像头运动
+
 					if (camera.over === camera.target.elem) {
-						enter_fullScreen_or_video(imageData, camera.target.x, camera.target.z, num_of_images);
-						var cameraX_abs = Math.abs(camera.target.x);
-						var threshold = ((((num_of_images -6)/2)-1)/2) * 1000;
+						
+						//alert(camera.target.z);
+						enter_fullScreen_or_video(imageData, camera.target.x, camera.target.z, num_of_images); // 再次点击时，调用该函数
+						// ---- return to the center ----
+						var cameraX_abs = Math.abs(camera.target.x); // 得到当前x的绝对值
+						var threshold = ((((num_of_images -6)/2)-1)/2) * 1000; // 获取阙值
 						if(cameraX_abs <= threshold){
-							camera.target.x = camera.target.x;
+
+							camera.target.x = camera.target.x;  // 再次点击时，垂直往后退
 							camera.target.z = 0;
 						}else{
 							if(camera.target.x < 0){
-								camera.target.x = camera.target.x + 1000;
-								camera.target.z = camera.target.z;
+								camera.target.x = camera.target.x + 1000
+								camera.target.z = camera.target.z
 							}else{
-								camera.target.x = camera.target.x - 1000;
-								camera.target.z = camera.target.z;
+								camera.target.x = camera.target.x - 1000
+								camera.target.z = camera.target.z
 							}
 						}
+
 						camera.target.elem = false;
+
 					} else {
+
+						// ---- goto diapo ----
+
 						camera.target.elem = camera.over;
+
 						camera.target.x = camera.over.tx;
+
 						camera.target.z = camera.over.tz;
-						
-						// 点击时预加载附近的图片
+
+						// ---- adapt tesselation level to distance ----  使镶嵌化水平适应距离
+
 						for (var i = 0, d; d = diapo[i++];) {
-							if(!d.isLoaded && !d.loadingStarted){
-                                var dx = camera.target.x - d.pc.x;
-                                var dz = camera.target.z - d.pc.z;
-                                var dist = Math.sqrt(dx * dx + dz * dz);
-                                if(dist < LOAD_DISTANCE * 1.5) { // 点击目标时，顺带加载稍远一点的
-                                    d.startLoading();
-                                }
-                            }
+
+							var dx = camera.target.x - d.pc.x;
+
+							var dz = camera.target.z - d.pc.z;
+
+							var dist = Math.sqrt(dx * dx + dz * dz);
+
+							var lev = (dist > 1500) ? quality[0] : quality[1];
+
+							d.img.setLevel(lev)
+
 						}
+
 					}
+
 				}
+
 			}
+
 		});
 
+		// ---- init camera ----
+
 		camera = new ge1doot.transform3D.Camera({
+
 			focalLength: Math.sqrt(scr.width) * 10,
+
 			easeTranslation: 0.025,
+
 			easeRotation: 0.06,
+
 			disableRz: true
+
 		}, {
-			move: function () {
+
+			move: function () {  // 摄像头运动函数
+
 				this.over = false;
+
+				// ---- rotation ----  摄像头可以3D旋转
+
 				if (pointer.isDraging) {
+
 					this.target.elem = false;
+
 					this.target.ry = -pointer.Xi * 0.01;
+
 					this.target.rx = (pointer.Y - scr.height * 0.5) / (scr.height * 0.5);
+
 				} else {
+
 					if (this.target.elem) {
+
 						this.target.ry = Math.atan2(
+
 							this.target.elem.pc.x - this.x,
+
 							this.target.elem.pc.z - this.z
+
 						);
+
 					}
+
 				}
+
 				this.target.rx *= 0.9;
+
 			}
+
 		});
 
 		camera.z  = -10000;
+
 		camera.py = 0;
 
-		// ---- create image placeholders ---- (只创建对象，不加载图)
+		// ---- create images ----  创建图片对象
+		
 		for (var i = 0, img; img = json.imgdata[i++];) {
-			num_of_images = i;
+			num_of_images = i
+			
 			diapo.push(
-				new Diapo(json.options.imagesPath, img, json.structure)
+
+				new Diapo(
+
+					json.options.imagesPath, 
+
+					img, 
+
+					json.structure
+
+				)
+
 			);
+
 		}	
 
-		// 移除动态调整画质的定时器，强制低画质以保证流畅
-		// setInterval(function() { ... }, 1000); 
-		
+		// ---- start engine ---- >>>
+
+		setInterval(function() {
+
+			quality = (fps > 50) ? [2,3] : [1,2];
+
+			fps = 0;
+
+		}, 1000);
+
 		run();
+
 	},
 
 	// ---- main loop ----
+
 	run = function () {
+
+		// ---- clear screen ----
+
 		ctx.clearRect(0, 0, scr.width, scr.height);
+
+		// ---- camera ----
+
 		camera.move();
 
+		// ---- draw layers ----  画层
+
 		for (var k = -1, l; l = layers[++k];) {
+
 			light = false;
+
 			for (var i = 0, d; d = diapo[i++];) {
-				(l === 1 && d.draw()) || (d.visible && d.poly[k].draw());
+
+				(l === 1 && d.draw()) || 
+
+				(d.visible && d.poly[k].draw());
+
 			}
+
 		}
+
+		// ---- cursor ----
 
 		if (camera.over && !pointer.isDraging) {
-			scr.setCursor("pointer");
+
+			scr.setCursor("pointer");  // 鼠标点中图片，游标为pointer
+
 		} else {
-			scr.setCursor("move");
+
+			scr.setCursor("move");  // camera移动时，游标为move
+
 		}
+
+		// ---- loop ----
 
 		fps++;
+
 		requestAnimFrame(run);
+
 	};
 
-	/* ==== prototypes ==== */  
+	/* ==== prototypes原型 ==== */  
 
 	Poly.prototype.draw = function () {
+
+		// ---- color light ----
+
 		var c = this.color;
+
 		if (c.light || !light) {
+
 			var s = c.light ? this.parent.light : 1;
+
+			// ---- rgba color ----  控制墙是否透明
+
 			light = "rgba(" + 
+
 				Math.round(c.r * s) + "," +
+
 				Math.round(c.g * s) + "," + 
+
 				Math.round(c.b * s) + "," + (c.a || 1) + ")";
+
 			ctx.fillStyle = light;
+
 		}
+
+		// ---- paint poly ----
+
 		if (!c.light || this.parent.light < 1) {
-			for (var i = 0; this.points[i++].projection(););
+
+			// ---- projection ----
+
+			for (
+
+				var i = 0; 
+
+				this.points[i++].projection();
+
+			);
+
 			this.drawPoly();
+
 			ctx.fill();
+
 		}
+
 	}
 
-	// 新增：启动加载的函数
-	Diapo.prototype.startLoading = function() {
-		if (this.loadingStarted || this.isLoaded) return;
-		this.loadingStarted = true;
-		var self = this;
-		this.img = new ge1doot.transform3D.Image(
-			this, this.imgPath, 1, {
-				isLoaded: function(img) {
-					self.isLoaded = true;
-					self.loaded(img);
-				}
-			}
-		);
-	};
+	/* ==== image onload ==== */
 
 	Diapo.prototype.loaded = function (img) {
+
+		// ---- create points ---- 初始化时，各个图片的长宽
+
 		var d = [-1,1,1,-1,1,1,-1,-1];
-		var w = 320 
+		
+		
+		// var w = img.texture.width  * 0.5;
+
+		// var h = img.texture.height * 0.5;
+		var w = 320 // 强制确定图片的大小
 		var h = 193
+
 		for (var i = 0; i < 4; i++) {
+
 			img.points[i] = new ge1doot.transform3D.Point(
+
 				this.pc.x + (w * this.normalZ * d[i]),
+
 				this.pc.y + (h * d[i + 4]),
+
 				this.pc.z + (w * this.normalX * d[i])
+
 			);
+
 		}
+
 	}
 
+	/* ==== images draw 在画板中画出图片==== */
+
 	Diapo.prototype.draw = function () {
+
+		// ---- visibility ----
+
 		this.pc.projection();
 
-		if (this.pc.Z > -(camera.focalLength >> 1)) {
-			
-			// ====== 懒加载逻辑 ======
-			if (!this.loadingStarted && !this.isLoaded) {
-				var dx = camera.x - this.pc.x;
-				var dz = camera.z - this.pc.z;
-				var dist = Math.sqrt(dx * dx + dz * dz);
-				
-				// 如果距离小于阈值，开始加载
-				if (dist < LOAD_DISTANCE) {
-					this.startLoading();
-				}
-			}
-			// ======================
+		if (this.pc.Z > -(camera.focalLength >> 1) && this.img.transform3D(true)) {
 
-			// 只有加载完成了才绘制
-			if (this.isLoaded && this.img && this.img.transform3D(true)) {
-				this.light = 0.5 + Math.abs(this.normalZ * camera.cosY - this.normalX * camera.sinY) * 0.6;
-				this.visible = true;
-				this.img.draw();
+			// ---- light ----
 
-				if (pointer.hasMoved || pointer.isDown) {
-					if (this.img.isPointerInside(pointer.X, pointer.Y)) 
-						camera.over = this;
-				}
-			} else {
-				// 未加载或加载中，不可见
-				this.visible = false;
+			this.light = 0.5 + Math.abs(this.normalZ * camera.cosY - this.normalX * camera.sinY) * 0.6;
+
+			// ---- draw image ----
+
+			this.visible = true;
+
+			this.img.draw();
+
+			// ---- test pointer inside ----
+
+			if (pointer.hasMoved || pointer.isDown) {
+
+				if (
+
+					this.img.isPointerInside(
+
+						pointer.X,
+
+						pointer.Y
+
+					)
+
+				) camera.over = this;
+
 			}
-		} else {
-			this.visible = false;
-		}
+
+		} else this.visible = false;
+
 		return true;
+
 	}
 
 	return {
+
+		// --- load data ----  监听事件，在页面加载时，开始执行load函数，载入数据(图片，墙壁，灯，阴影)
+		// 最先执行，在页面加载过程中
 		load : function (data) {
 			imageData = data.imgdata;
 			window.addEventListener('load', function () {
+
 				ge1doot.loadJS(
+
 					"js/imageTransform3D.js",
+
 					init, data
+					
 				);
+
 			}, false);
+			
 		}
 	}
 
 })().load({
 
 	imgdata:[
+
 		// north 北墙
 		{img:'3D长廊预览图/shuffling.jpg', x:-25000,  y:0, z:1500, nx:0, nz:1},
+
 		{img:'3D长廊预览图/305.jpg', x:-24000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/306.jpg', x:-23000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/94.jpg', x:-22000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/90.jpg', x:-21000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/101.jpg', x:-20000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/81.jpg', x:-19000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/77.jpg', x:-18000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/73.jpg', x:-17000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/69.jpg', x:-16000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/65.jpg', x:-15000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/19.jpg', x:-14000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/58.jpg', x:-13000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/54.jpg', x:-12000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/47.jpg', x:-11000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/43.jpg', x:-10000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/39.jpg', x:-9000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/18.jpg', x:-8000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/15.jpg', x:-7000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/28.jpg', x:-6000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/17.jpg', x:-5000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/8.jpg', x:-4000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/5.jpg', x:-3000,  y:0, z:1500, nx:0, nz:1},
+	
 		{img:'3D长廊预览图/145.jpg', x:-2000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/3.jpg', x:-1000, y:0, z:1500, nx:0, nz:1},
+
 		{img:'3D长廊预览图/4.jpg', x:0,     y:0, z:1500, nx:0, nz:1},
+
 		{img:'3D长廊预览图/11.jpg', x:1000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/51.jpg', x:2000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/9.jpg', x:3000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/12.jpg', x:4000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/22.jpg', x:5000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/29.jpg', x:6000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/33.jpg', x:7000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/37.jpg', x:8000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/40.jpg', x:9000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/44.jpg', x:10000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/48.jpg', x:11000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/55.jpg', x:12000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/59.jpg', x:13000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/62.jpg', x:14000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/66.jpg', x:15000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/70.jpg', x:16000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/74.jpg', x:17000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/78.jpg', x:18000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/26.jpg', x:19000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/87.jpg', x:20000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/91.jpg', x:21000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/95.jpg', x:22000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/99.jpg', x:23000,  y:0, z:1500, nx:0, nz:1},
+		
 		{img:'3D长廊预览图/103.jpg', x:24000,  y:0, z:1500, nx:0, nz:1},
+
 		{img:'3D长廊预览图/shuffling.jpg', x:25000,  y:0, z:1500, nx:0, nz:1},
 		
 		// east 东墙
 		{img:'3D长廊预览图/127.jpg', x:25500,  y:0, z:1000, nx:-1, nz:0},
+
 		{img:'3D长廊预览图/50.jpg', x:25500,  y:0, z:0, nx:-1, nz:0},  
+
 		{img:'3D长廊预览图/85.jpg', x:25500,  y:0, z:-1000, nx:-1, nz:0}, 
 		
+
 		// south 南墙
 		{img:'3D长廊预览图/shuffling.jpg', x:25000, y:0, z:-1500, nx:0, nz:-1},
+
 		{img:'3D长廊预览图/304.jpg', x:24000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/100.jpg', x:23000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/96.jpg', x:22000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/92.jpg', x:21000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/88.jpg', x:20000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/102.jpg', x:19000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/79.jpg', x:18000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/75.jpg', x:17000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/71.jpg', x:16000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/67.jpg', x:15000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/63.jpg', x:14000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/60.jpg', x:13000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/56.jpg', x:12000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/49.jpg', x:11000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/45.jpg', x:10000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/41.jpg', x:9000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/38.jpg', x:8000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/2.jpg', x:7000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/30.jpg', x:6000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/23.jpg', x:5000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/14.jpg', x:4000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/10.jpg', x:3000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/6.jpg', x:2000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/20.jpg', x:1000,  y:0, z:-1500, nx:0, nz:-1},
+
 		{img:'3D长廊预览图/21.jpg', x:0,     y:0, z:-1500, nx:0, nz:-1},
+
 		{img:'3D长廊预览图/24.jpg', x:-1000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/7.jpg', x:-2000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/12.jpg', x:-3000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/16.jpg', x:-4000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/27.jpg', x:-5000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/31.jpg', x:-6000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/35.jpg', x:-7000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/13.jpg', x:-8000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/42.jpg', x:-9000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/46.jpg', x:-10000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/52.jpg', x:-11000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/57.jpg', x:-12000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/61.jpg', x:-13000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/64.jpg', x:-14000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/68.jpg', x:-15000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/72.jpg', x:-16000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/76.jpg', x:-17000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/80.jpg', x:-18000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/84.jpg', x:-19000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/89.jpg', x:-20000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/93.jpg', x:-21000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/303.jpg', x:-22000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/302.jpg', x:-23000, y:0, z:-1500, nx:0, nz:-1},
+		
 		{img:'3D长廊预览图/301.jpg', x:-24000, y:0, z:-1500, nx:0, nz:-1},
+
 		{img:'3D长廊预览图/shuffling.jpg', x:-25000, y:0, z:-1500, nx:0, nz:-1},
 		
 		// west 西墙
 		{img:'3D长廊预览图/83.jpg', x:-25500, y:0, z:-1000, nx:1, nz:0},  
+
 		{img:'3D长廊预览图/97.jpg', x:-25500, y:0, z:0, nx:1, nz:0},  
+
 		{img:'3D长廊预览图/36.jpg', x:-25500, y:0, z:1000, nx:1, nz:0}  
+ 		
+ 		
 	],
 
 	structure:[
+
 		{
+
+			// wall  
+
 			fill: {r:224, g:224, b:224, light:1},
+
 			x: [-1001,-490,-490,-1001], 
+
 			z: [-500,-500,-500,-500],  
-			y: [500,500,-500,-500]
+
+			y: [500,500,-500,-500]  // 调整墙面的高
+
 		},{
+
+			// wall
+
 			fill: {r:224, g:224, b:224, light:1},
+
 			x: [-501,2,2,-500],
+
 			z: [-500,-500,-500,-500],
-			y: [500,500,-500,-500]
+
+			y: [500,500,-500,-500]  // 调整墙面的高
+
 		},{
+
+			// wall
+
 			fill: {r:224, g:224, b:224, light:1},
+
 			x: [0,502,502,0],
+
 			z: [-500,-500,-500,-500],
-			y: [500,500,-500,-500]
+
+			y: [500,500,-500,-500]  // 调整墙面的高
+
 		},{
+
+			// wall
+
 			fill: {r:224, g:224, b:224, light:1},
+
 			x: [490,1002,1002,490],
+
 			z: [-500,-500,-500,-500],
-			y: [500,500,-500,-500]
+
+			y: [500,500,-500,-500]  // 调整墙面的高
+
 		},{
+
+			// shadow
+
 			fill: {r:0, g:0, b:0, a:0.2},
+
 			x: [-420,420,420,-420],
+
 			z: [-500,-500,-500,-500],
+
 			y: [150, 150,-320,-320]
+
 		},{
+
+			// shadow
+
 			fill: {r:0, g:0, b:0, a:0.2},
+
 			x: [-20,20,20,-20],
+
 			z: [-500,-500,-500,-500],
+
 			y: [250, 250,150,150]
+
 		},{
+
+			// shadow
+
 			fill: {r:0, g:0, b:0, a:0.2},
+
 			x: [-20,20,20,-20],
+
 			z: [-500,-500,-500,-500],
+
 			y: [-320, -320,-500,-500]
+
 		},{
+
+			// shadow
+
 			fill: {r:0, g:0, b:0, a:0.2},
+
 			x: [-20,20,10,-10],
+
 			z: [-500,-500,-100,-100],
+
 			y: [-500, -500,-500,-500]
+
 		},{
+
+			// base
+
 			fill: {r:128, g:128, b:128},
+
 			x: [-50,50,50,-50],
+
 			z: [-150,-150,-50,-50],
+
 			y: [-500,-500,-500,-500]
+
 		},{
+
+			// support
+
 			fill: {r:128, g:128, b:128},
+
 			x: [-10,10,10,-10],
+
 			z: [-100,-100,-100,-100],
+
 			y: [300,300,-500,-500]
+
 		},{
+
+			// frame
+
 			fill: {r:128, g:128, b:128},
+
 			x: [-320,-320,-320,-320],
+
 			z: [0,-20,-20,0],
+
 			y: [-190,-190,190,190]
+
 		},{
+
+			// frame
+
 			fill: {r:128, g:128, b:128},
+
 			x: [320,320,320,320],
+
 			z: [0,-20,-20,0],
+
 			y: [-190,-190,190,190]
+
 		},
+
 		{img:true},
+
 		{
+
+			// ceilingLight
+
 			fill: {r:255, g:128, b:0},
+
 			x: [-50,50,50,-50],
+
 			z: [450,450,550,550],
+
 			y: [500,500,500,500]
+
 		},{
+
+			// groundLight
+
 			fill: {r:255, g:128, b:0},
+
 			x: [-50,50,50,-50],
+
 			z: [450,450,550,550],
+
 			y: [-500,-500,-500,-500]
+
 		}
+
 	],
 
 	options:{
+
 		imagesPath: ""
+
 	}
+
 });
-
-// ==================== 以下函数保持不变 ====================
-
 function enter_fullScreen_or_video(imageData,cameraX,cameraZ, num_of_images){
 	imageData = JSON.stringify(imageData);
+	//alert(imageData);
 	console.log(imageData);
 	
-	var cameraX_abs = Math.abs(cameraX); 
-	var threshold = ((((num_of_images -6)/2)-1)/2) * 1000; 
+	var cameraX_abs = Math.abs(cameraX); // 获取绝对值
+	var threshold = ((((num_of_images -6)/2)-1)/2) * 1000;  // 获取阙值，判断点击的是南北墙还是东西墙
 	
 	if(cameraX_abs <= threshold){
-		if(cameraZ < 0) cameraZ = -1500;
-		else cameraZ = 1500;
+		if(cameraZ < 0)
+			cameraZ = -1500
+		else
+			cameraZ = 1500
 	}else{
-		if(cameraX < 0) cameraX = -(threshold + 500);
-		else cameraX = threshold + 500;
+		if(cameraX < 0)
+			cameraX = -(threshold + 500);
+		else
+			cameraX = threshold + 500;
 	}
 	
-	var imgname=""; 
-	var d1=JSON.parse(imageData);
+	var imgname=""; //存储图片
+	
+	var d1=JSON.parse(imageData);//转换成数组
 	
 	d1.forEach(function(t){
+		
+		console.log(t.x+":"+cameraX+"     "+t.z+":"+cameraZ);
+		
 		if(t.x==cameraX&&t.z==cameraZ){
+			
+			
 			imgname = t.img.replace(/3D长廊预览图\/|.jpg/g, "");
+			
 			console.log(imgname+"查找到："+t.img);
+			
 		}
-	});
+		//console.log(t);
+	})
 	
 	var data = "";
 	var checkbox_state;
-	
+	//alert(imgname)
 	if (imgname == "shuffling"){
 		document.getElementById("shuffle").style.display="block";
 	}else{
 		var video_or_full_pic = imgname;
-		if(video_or_full_pic < 300){  
+		if(video_or_full_pic < 300){  // 图片名小于300的，进入带落樱的全屏模式，否则进入视频模式
+			//data= "<img src='壁纸图/" + imgname +".jpg' style='width:100%; height:auto;' />";
+
+			// 开关显示
 			document.getElementById("control_effect").style.display="block";
 			checkbox_state = $("#checkbox_id").is(":checked");
 			if (checkbox_state == false){
+				// 落樱效果
 				$("#jsi-cherry-container").css("background-image","url(壁纸图/"+imgname+".jpg)");
 				var cherry_block1 = document.getElementById('jsi-cherry-container');
 				cherry_block1.style.display = "block";
 			}else{
+				// 无落樱效果
 				$("#background-container").css("background-image","url(壁纸图/"+imgname+".jpg)");
 				document.getElementById("background-container").style.display="block";
 			}
@@ -656,11 +1106,13 @@ function enter_fullScreen_or_video(imageData,cameraX,cameraZ, num_of_images){
 	document.getElementById("checkbox_id").onclick = () => {
 		checkbox_state = $("#checkbox_id").is(":checked");
 		if (checkbox_state == false){
+			// 落樱效果
 			$("#jsi-cherry-container").css("background-image","url(壁纸图/"+imgname+".jpg)");
 			var cherry_block1 = document.getElementById('jsi-cherry-container');
 			cherry_block1.style.display = "block";
 			document.getElementById("background-container").style.display="none";
 		}else{
+			// 无落樱效果
 			var cherry_none1 = document.getElementById('jsi-cherry-container');
 			cherry_none1.style.display = "none";
 			$("#background-container").css("background-image","url(壁纸图/"+imgname+".jpg)");
@@ -682,17 +1134,22 @@ function enter_fullScreen_or_video(imageData,cameraX,cameraZ, num_of_images){
 			}else{
 				document.getElementById('cover').innerHTML = "";
 			}
+				
 		}
+        
    }
 }
 </script>
 
 </head> 
 <!-- 新轮播逻辑 -->
+<script src="js/jquery-2.1.1.min.js"></script>
+<script src="js/crosscover.min.js"></script>
 <script>
 var mediaList = [];
 var shuffleItems = [];
 
+// 1. 加载媒体列表
 fetch('media_list.json')
     .then(response => {
         if (!response.ok) throw new Error('media_list.json 不存在');
@@ -700,14 +1157,16 @@ fetch('media_list.json')
     })
     .then(data => {
         mediaList = data;
+        // 随机选择22个媒体（不足22则用全部）
         shuffleItems = getRandomItems(mediaList, 22);
         generateCarouselHTML();
     })
     .catch(error => {
         console.error('轮播加载失败:', error);
-        fallbackToImages(); 
+        fallbackToImages(); // 回退到旧图片轮播
     });
 
+// 2. 随机选择函数
 function getRandomItems(arr, n) {
     if (arr.length <= n) return [...arr];
     const result = [];
@@ -722,32 +1181,42 @@ function getRandomItems(arr, n) {
     return result;
 }
 
+// 3. 生成轮播HTML
 function generateCarouselHTML() {
     var data = "<ul class='crosscover-list'>";
+    
     for (var i = 0; i < shuffleItems.length; i++) {
         var item = shuffleItems[i];
+        
         if (item.type === 'image') {
+            // 图片项
             data += `<li><img src="./壁纸图/${item.id}.jpg" style="width:100%; height:auto;" alt="image${i}"></li>`;
         } else if (item.type === 'video') {
+            // 视频项（含预览图和播放图标）
             data += `<li class="video-item" data-video-id="${item.id}" data-video-ext="${item.ext}">`;
             data += `<img src="./3D长廊预览图/${item.id}.jpg" style="width:100%; height:auto;" alt="video${i}">`;
             data += `<div class="video-play-icon">▶</div>`;
             data += `</li>`;
         }
     }
+    
     data += "</ul>";
     document.getElementById('shuffle').innerHTML = data;
     
+    // 4. 视频项点击事件（播放视频）
     document.querySelectorAll('.video-item').forEach(item => {
         item.addEventListener('click', function() {
             var videoId = this.dataset.videoId;
-            enter_fullScreen_or_video(mediaList, videoId * 1000, 0, mediaList.length);
+            // 调用原逻辑播放视频（原enter_fullScreen_or_video函数已支持视频）
+            enter_fullScreen_or_video(mediaList, videoId * 1000, 0, mediaList.length); // 模拟相机位置触发
         });
     });
     
+    // 5. 初始化轮播插件
     initCarousel();
 }
 
+// 6. 回退方案（当media_list.json不存在时）
 function fallbackToImages() {
     var image_shuffle = [];
     function randomNum() {
@@ -763,39 +1232,71 @@ function fallbackToImages() {
     }
     data += "</ul>";
     document.getElementById('shuffle').innerHTML = data;
+    
     initCarousel();
 }
 
+// 7. 轮播插件初始化函数
 function initCarousel() {
-    if ($(".crosscover").length) {
-        $(".crosscover").crosscover({
-            animateInClass: 'bounce',
-            animateOutClass: 'flash',
-            interval: 1000 * 60 * 10,
-            startIndex: 0,
-            autoPlay: true,
-            controller: true
-        });
-    }
+    $(".crosscover").crosscover({
+        animateInClass: 'bounce',
+        animateOutClass: 'flash',
+        interval: 1000 * 60 * 10, // 10分钟切换
+        startIndex: 0,
+        autoPlay: true,
+        controller: true
+    });
 }
 </script>
 	<body>
+		<!-- 装视频的div -->
 		<div id = "cover"></div>
+		
+		<!-- 装落樱以及背景的div -->
 		<div id="jsi-cherry-container" class="cherry_container" style="display: none;"></div>
+		<!-- 无落樱单背景的div -->
 		<div id="background-container" class="background_container" style="display: none;"></div>
 
+		<!-- 轮播div -->
 		<div id="shuffle" class="crosscover" style="display:none">
+				<!-- <ul class="crosscover-list">
+					<li><img src="./壁纸图/83.jpg" style="width:100%; height:auto;" alt="image01"></li>
+					<li><img src="./壁纸图/8.jpg" style="width:100%; height:auto;" alt="image02"></li>
+					<li><img src="./壁纸图/9.jpg" style="width:100%; height:auto;" alt="image03"></li>
+					<li><img src="./壁纸图/11.jpg" style="width:100%; height:auto;" alt="image04"></li>
+					<li><img src="./壁纸图/15.jpg" style="width:100%; height:auto;" alt="image05"></li>
+					<li><img src="./壁纸图/19.jpg" style="width:100%; height:auto;" alt="image06"></li>
+					<li><img src="./壁纸图/24.jpg" style="width:100%; height:auto;" alt="image07"></li>
+					<li><img src="./壁纸图/69.jpg" style="width:100%; height:auto;" alt="image08"></li>
+					<li><img src="./壁纸图/80.jpg" style="width:100%; height:auto;" alt="image09"></li>
+					<li><img src="./壁纸图/89.jpg" style="width:100%; height:auto;" alt="image10"></li>
+					<li><img src="./壁纸图/97.jpg" style="width:100%; height:auto;" alt="image11"></li>
+					<li><img src="./壁纸图/3.jpg" style="width:100%; height:auto;" alt="image12"></li>
+					<li><img src="./壁纸图/16.jpg" style="width:100%; height:auto;" alt="image13"></li>
+					<li><img src="./壁纸图/18.jpg" style="width:100%; height:auto;" alt="image14"></li>
+					<li><img src="./壁纸图/21.jpg" style="width:100%; height:auto;" alt="image15"></li>
+					<li><img src="./壁纸图/23.jpg" style="width:100%; height:auto;" alt="image16"></li>
+					<li><img src="./壁纸图/25.jpg" style="width:100%; height:auto;" alt="image17"></li>
+					<li><img src="./壁纸图/26.jpg" style="width:100%; height:auto;" alt="image18"></li>
+					<li><img src="./壁纸图/28.jpg" style="width:100%; height:auto;" alt="image19"></li>
+					<li><img src="./壁纸图/31.jpg" style="width:100%; height:auto;" alt="image20"></li>
+					<li><img src="./壁纸图/35.jpg" style="width:100%; height:auto;" alt="image21"></li>
+					<li><img src="./壁纸图/37.jpg" style="width:100%; height:auto;" alt="image22"></li>
+				</ul> -->
 		</div>
 		
+		<!-- 3D空间div -->
 		<div id="control">
 			<canvas id="canvas">你的浏览器不支持HTML5画布技术，请使用谷歌浏览器。</canvas>
 		</div>
 		
+		<!-- 樱花特效开关 -->
 		<div id="control_effect" class="open_effect" style="display:none;">
 			 <div id="control_button">
-				<input id="checkbox_id" type="checkbox" class="switch">
+				<input id="checkbox_id" type="checkbox" class="switch" onchange="on_off_cherry()">
 			 </div>
 		</div>
+		<!-- 右下角按钮 -->
 		<div id="sbtn"></div>
 
 		<script>
@@ -804,15 +1305,18 @@ function initCarousel() {
 				$("#control_button").show();
 				}, function () {
 				$("#control_button").hide();
-			});
 
+			})
+		</script>
+
+
+		<script>
 			document.getElementById("sbtn").onclick = () => {
 				document.getElementById("shuffle").style.display="none";
-                document.getElementById("control").style.display="block"; // 确保回到3D视图
 			}
 		</script>
 
-		<!-- 落樱效果 js -->
+		<!-- 落樱效果的js -->
 		<script>
 			var RENDERER = {
 				INIT_CHERRY_BLOSSOM_COUNT : 1,
